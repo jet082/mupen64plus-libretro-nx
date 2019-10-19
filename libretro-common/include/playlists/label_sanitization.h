@@ -1,7 +1,7 @@
-/* Copyright  (C) 2018 - M4xw <m4x@m4xw.net>, RetroArch Team
+/* Copyright  (C) 2010-2019 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
- * The following license statement only applies to this file (switch_pthread.c).
+ * The following license statement only applies to this file (file_path.h).
  * ---------------------------------------------------------------------------------------
  *
  * Permission is hereby granted, free of charge,
@@ -19,42 +19,19 @@
  * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#include <stddef.h>
+#include <boolean.h>
 
-#include "switch_pthread.h"
+void label_sanitize(char *label, bool (*left)(char*), bool (*right)(char*));
 
-#define STACKSIZE 1000000 * 12 // 12 MB
-static uint32_t threadCounter = 1;
-int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg)
-{
-   u32 prio = 0;
+void label_remove_parens(char *label);
 
-   Thread new_switch_thread;
+void label_remove_brackets(char *label);
 
-   svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+void label_remove_parens_and_brackets(char *label);
 
-   // Launch threads on Core 1
-   int rc = threadCreate(&new_switch_thread, (void (*)(void *))start_routine, arg, STACKSIZE, prio - 1, 1);
+void label_keep_region(char *label);
 
-   if (R_FAILED(rc))
-   {
-      return EAGAIN;
-   }
+void label_keep_disc(char *label);
 
-   printf("[Threading]: Starting Thread(#%i)\n", threadCounter);
-   if (R_FAILED(threadStart(&new_switch_thread)))
-   {
-      threadClose(&new_switch_thread);
-      return -1;
-   }
-
-   *thread = new_switch_thread;
-
-   return 0;
-}
-
-void pthread_exit(void *retval)
-{
-   (void)retval;
-   printf("[Threading]: Exiting Thread\n");
-   svcExitThread();
-}
+void label_keep_region_and_disc(char *label);

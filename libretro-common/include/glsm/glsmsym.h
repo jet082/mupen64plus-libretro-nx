@@ -27,6 +27,11 @@
 
 #include <retro_common_api.h>
 
+#ifdef HAVE_OPENGLES3
+typedef double GLdouble;
+typedef double GLclampd;
+#endif
+
 RETRO_BEGIN_DECLS
 
 /* deprecated old FF-style GL symbols */

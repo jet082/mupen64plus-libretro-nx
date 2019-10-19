@@ -3,6 +3,7 @@ FORCE_GLES=0
 FORCE_GLES3=0
 LLE=0
 
+HAVE_LTCG ?= 0
 DYNAFLAGS :=
 INCFLAGS  :=
 COREFLAGS :=
@@ -123,9 +124,19 @@ ifneq (,$(findstring unix,$(platform)))
 # Raspberry Pi
 else ifneq (,$(findstring rpi,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.so
-   LDFLAGS += -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined
-   GLES = 1
+   LDFLAGS += -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined -ldl
+   ifeq ($(FORCE_GLES3),1)
+      GLES3 = 1
+   else
+      GLES = 1
+   endif
    ifneq (,$(findstring mesa,$(platform)))
+      MESA = 1
+   endif
+   ifneq (,$(findstring rpi4,$(platform)))
+      MESA = 1
+   endif
+   ifeq ($(MESA), 1)
       GL_LIB := -lGLESv2
    else
       LLE = 0
@@ -140,6 +151,9 @@ else ifneq (,$(findstring rpi,$(platform)))
       HAVE_NEON = 1
    else ifneq (,$(findstring rpi3,$(platform)))
       CPUFLAGS += -march=armv8-a+crc -mtune=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard
+      HAVE_NEON = 1
+   else ifneq (,$(findstring rpi4,$(platform)))
+      CPUFLAGS += -march=armv8-a+crc -mtune=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard
       HAVE_NEON = 1
    endif
    COREFLAGS += -DOS_LINUX
@@ -168,7 +182,7 @@ else ifeq ($(platform), libnx)
 else ifneq (,$(findstring odroid64,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.so
    LDFLAGS += -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined
-   BOARD := $(shell cat /proc/cpuinfo | grep -i odroid | awk '{print $$3}')
+   BOARD ?= $(shell cat /proc/cpuinfo | grep -i odroid | awk '{print $$3}')
    GLES = 1
    GL_LIB := -lGLESv2
    WITH_DYNAREC := aarch64
@@ -190,29 +204,95 @@ else ifneq (,$(findstring odroid64,$(platform)))
 else ifneq (,$(findstring odroid,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.so
    LDFLAGS += -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined
-   BOARD := $(shell cat /proc/cpuinfo | grep -i odroid | awk '{print $$3}')
+   BOARD ?= $(shell cat /proc/cpuinfo | grep -i odroid | awk '{print $$3}')
+   GLES = 1
+   GL_LIB := -lGLESv2
+   CPUFLAGS += -marm -mfloat-abi=hard
+   HAVE_NEON = 1
+   WITH_DYNAREC=arm
+   ifneq (,$(findstring ODROIDC,$(BOARD)))
+      # ODROID-C1
+      CPUFLAGS += -mcpu=cortex-a5 -mfpu=neon
+   else ifneq (,$(findstring ODROID-XU,$(BOARD)))
+      # ODROID-XU3 & -XU3 Lite and -XU4
+      ifeq "$(shell expr `gcc -dumpversion` \>= 4.9)" "1"
+         CPUFLAGS += -mcpu=cortex-a15 -mtune=cortex-a15.cortex-a7 -mfpu=neon-vfpv4 -mvectorize-with-neon-quad
+      else
+         CPUFLAGS += -mcpu=cortex-a9 -mfpu=neon
+      endif
+   else
+      # ODROID-U2, -U3, -X & -X2
+      CPUFLAGS += -mcpu=cortex-a9 -mfpu=neon
+   endif
+
+   COREFLAGS += -DOS_LINUX
+   ASFLAGS = -f elf -d ELF_TYPE
+
+# Amlogic S905/S905X/S912 (AMLGXBB/AMLGXL/AMLGXM) e.g. Khadas VIM1/2 / S905X2 (AMLG12A) & S922X/A311D (AMLG12B) e.g. Khadas VIM3 - 32-bit userspace
+else ifneq (,$(findstring AMLG,$(platform)))
+   TARGET := $(TARGET_NAME)_libretro.so
+   LDFLAGS += -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined -ldl
+   CPUFLAGS += -march=armv8-a+crc -mfloat-abi=hard -mfpu=neon-fp-armv8
+
+   ifneq (,$(findstring AMLG12,$(platform)))
+      ifneq (,$(findstring AMLG12B,$(platform)))
+         CPUFLAGS += -mtune=cortex-a73.cortex-a53
+      else
+         CPUFLAGS += -mtune=cortex-a53
+      endif
+      GLES3 = 1
+   else ifneq (,$(findstring AMLGX,$(platform)))
+      CPUFLAGS += -mtune=cortex-a53
+      ifneq (,$(findstring AMLGXM,$(platform)))
+         GLES3 = 1
+      else
+         GLES = 1
+      endif
+   endif
+
+   GL_LIB := -lGLESv2
+   HAVE_NEON = 1
+   WITH_DYNAREC=arm
+   COREFLAGS += -DUSE_GENERIC_GLESV2 -DOS_LINUX
+   ASFLAGS = -f elf -d ELF_TYPE
+
+# Amlogic S905/S912
+else ifneq (,$(findstring amlogic,$(platform)))
+   TARGET := $(TARGET_NAME)_libretro.so
+   LDFLAGS += -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined -ldl
    GLES = 1
    GL_LIB := -lGLESv2
    CPUFLAGS += -marm -mfloat-abi=hard -mfpu=neon
    HAVE_NEON = 1
    WITH_DYNAREC=arm
-   ifneq (,$(findstring ODROIDC,$(BOARD)))
-      # ODROID-C1
-      CPUFLAGS += -mcpu=cortex-a5
-   else ifneq (,$(findstring ODROID-XU,$(BOARD)))
-      # ODROID-XU3 & -XU3 Lite and -XU4
-      ifeq "$(shell expr `gcc -dumpversion` \>= 4.9)" "1"
-         CPUFLAGS += -march=armv7ve -mcpu=cortex-a15.cortex-a7
-      else
-         CPUFLAGS += -mcpu=cortex-a9
+   COREFLAGS += -DUSE_GENERIC_GLESV2 -DOS_LINUX
+   CPUFLAGS += -march=armv8-a -mcpu=cortex-a53 -mtune=cortex-a53
+
+# Rockchip RK3288 e.g. Asus Tinker Board / RK3328 e.g. PINE64 Rock64 / RK3399 e.g. PINE64 RockPro64 - 32-bit userspace
+else ifneq (,$(findstring RK,$(platform)))
+   TARGET := $(TARGET_NAME)_libretro.so
+   LDFLAGS += -shared -Wl,--version-script=$(LIBRETRO_DIR)/link.T -Wl,--no-undefined -ldl
+
+   ifneq (,$(findstring RK33,$(platform)))
+      CPUFLAGS += -march=armv8-a+crc -mfloat-abi=hard -mfpu=neon-fp-armv8
+      ifneq (,$(findstring RK3399,$(platform)))
+         CPUFLAGS += -mtune=cortex-a72.cortex-a53
+         GLES3 = 1
+      else ifneq (,$(findstring RK3328,$(platform)))
+         CPUFLAGS += -mtune=cortex-a53
+         GLES = 1
       endif
-   else
-      # ODROID-U2, -U3, -X & -X2
-      CPUFLAGS += -mcpu=cortex-a9
+   else ifneq (,$(findstring RK3288,$(platform)))
+      CPUFLAGS += -march=armv7ve -mtune=cortex-a17 -mfloat-abi=hard -mfpu=neon-vfpv4
+      GLES3 = 1
    endif
 
-   COREFLAGS += -DOS_LINUX
+   GL_LIB := -lGLESv2
+   HAVE_NEON = 1
+   WITH_DYNAREC=arm
+   COREFLAGS += -DUSE_GENERIC_GLESV2 -DOS_LINUX
    ASFLAGS = -f elf -d ELF_TYPE
+
 # OS X
 else ifneq (,$(findstring osx,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.dylib
@@ -234,42 +314,47 @@ else ifneq (,$(findstring osx,$(platform)))
    ASFLAGS = -f elf -d ELF_TYPE
 # iOS
 else ifneq (,$(findstring ios,$(platform)))
-   ifeq ($(IOSSDK),)
-      IOSSDK := $(shell xcodebuild -version -sdk iphoneos Path)
-   endif
+	ifeq ($(IOSSDK),)
+		IOSSDK := $(shell xcodebuild -version -sdk iphoneos Path)
+	endif
 
-   TARGET := $(TARGET_NAME)_libretro_ios.dylib
-   DEFINES += -DIOS
-   GLES = 1
-   WITH_DYNAREC=arm
-
-   PLATCFLAGS += -DOS_MAC_OS_X
-   PLATCFLAGS += -DHAVE_POSIX_MEMALIGN -DNO_ASM
-   PLATCFLAGS += -DIOS -marm
-   CPUFLAGS += -DNO_ASM  -DARM -D__arm__ -DARM_ASM -D__NEON_OPT
-   CPUFLAGS += -marm -mcpu=cortex-a8 -mfpu=neon -mfloat-abi=softfp
-   LDFLAGS += -dynamiclib
-   HAVE_NEON=1
-
-   GL_LIB := -framework OpenGLES
-
-   CC = clang -arch armv7 -isysroot $(IOSSDK)
-   CC_AS = perl ./tools/gas-preprocessor.pl $(CC)
-   CXX = clang++ -arch armv7 -isysroot $(IOSSDK)
-   ifeq ($(platform),ios9)
-      CC         += -miphoneos-version-min=8.0
-      CC_AS      += -miphoneos-version-min=8.0
-      CXX        += -miphoneos-version-min=8.0
-      PLATCFLAGS += -miphoneos-version-min=8.0
-   else
-      CC += -miphoneos-version-min=5.0
-      CC_AS += -miphoneos-version-min=5.0
-      CXX += -miphoneos-version-min=5.0
-      PLATCFLAGS += -miphoneos-version-min=5.0
-   endif
-
-   COREFLAGS += -DOS_LINUX
-   ASFLAGS = -f elf -d ELF_TYPE
+	TARGET := $(TARGET_NAME)_libretro_ios.dylib
+	DEFINES += -DIOS
+	GLES = 1
+	ifeq ($(platform),ios-arm64)
+		WITH_DYNAREC=
+		GLES3=1
+		EGL := 0
+		PLATCFLAGS += -DHAVE_POSIX_MEMALIGN -DNO_ASM
+		PLATCFLAGS += -DIOS -marm -DOS_IOS -DDONT_WANT_ARM_OPTIMIZATIONS -DGL_DEBUG -DHAVE_OPENGLES
+		#CPUFLAGS += -DNO_ASM  -DARM -D__arm__ -DARM_ASM -D__NEON_OPT
+		CPUFLAGS += -marm -mfpu=neon -mfloat-abi=softfp
+		HAVE_NEON=0
+		CC         += -miphoneos-version-min=8.0
+		CC_AS      += -miphoneos-version-min=8.0
+		CXX        += -miphoneos-version-min=8.0
+		PLATCFLAGS += -miphoneos-version-min=8.0 -Wno-error=implicit-function-declaration
+		CC = clang -arch arm64 -isysroot $(IOSSDK)
+		#CC_AS = perl ./tools/gas-preprocessor.pl $(CC)
+		CXX = clang++ -arch arm64 -isysroot $(IOSSDK)
+	else
+		PLATCFLAGS += -DOS_MAC_OS_X
+		PLATCFLAGS += -DHAVE_POSIX_MEMALIGN -DNO_ASM
+		PLATCFLAGS += -DIOS -marm
+		CPUFLAGS += -DNO_ASM  -DARM -D__arm__ -DARM_ASM -D__NEON_OPT
+		CPUFLAGS += -marm -mcpu=cortex-a8 -mfpu=neon -mfloat-abi=softfp
+		WITH_DYNAREC=arm
+		HAVE_NEON=1
+		CC         += -miphoneos-version-min=5.0
+		CC_AS      += -miphoneos-version-min=5.0
+		CXX        += -miphoneos-version-min=5.0
+		PLATCFLAGS += -miphoneos-version-min=5.0
+		CC = clang -arch armv7 -isysroot $(IOSSDK)
+		CC_AS = perl ./tools/gas-preprocessor.pl $(CC)
+		CXX = clang++ -arch armv7 -isysroot $(IOSSDK)
+	endif
+	LDFLAGS += -dynamiclib
+	GL_LIB := -framework OpenGLES
 # Android
 else ifneq (,$(findstring android,$(platform)))
    ANDROID = 1
@@ -340,21 +425,23 @@ else
    TARGET := $(TARGET_NAME)_libretro.dll
    LDFLAGS += -shared -static-libgcc -static-libstdc++ -Wl,--version-script=$(LIBRETRO_DIR)/link.T -lwinmm -lgdi32
    GL_LIB := -lopengl32
-   ifneq (,$(findstring win32,$(platform)))
-      CC = i686-w64-mingw32-gcc
-      CXX = i686-w64-mingw32-g++
-      WITH_DYNAREC = x86
-   else ifneq (,$(findstring win64,$(platform)))
+   
+   ifeq ($(MSYSTEM),MINGW64)
       CC = x86_64-w64-mingw32-gcc
       CXX = x86_64-w64-mingw32-g++
       WITH_DYNAREC = x86_64
+      COREFLAGS += -DWIN64
+      ASFLAGS = -f win64 -d WIN64
+   else ifeq ($(MSYSTEM),MINGW32)
+      CC = i686-w64-mingw32-gcc
+      CXX = i686-w64-mingw32-g++
+      WITH_DYNAREC = x86
+      COREFLAGS += -DWIN32
+      ASFLAGS = -f win32 -d WIN32 -d LEADING_UNDERSCORE
    endif
-	COREFLAGS += -DOS_WINDOWS -DMINGW
-   ifneq (,$(findstring win32,$(platform)))
-        ASFLAGS = -f win32
-	else
-        ASFLAGS = -f win64 -d WIN64
-	endif
+
+   COREFLAGS += -DOS_WINDOWS -DMINGW
+   CXXFLAGS += -fpermissive
 endif
 
 ifeq ($(STATIC_LINKING), 1)
@@ -370,7 +457,11 @@ endif
 include Makefile.common
 
 ifeq ($(HAVE_NEON), 1)
-   COREFLAGS += -DHAVE_NEON -D__ARM_NEON__ -D__NEON_OPT -ftree-vectorize -mvectorize-with-neon-quad -ftree-vectorizer-verbose=2 -funsafe-math-optimizations -fno-finite-math-only
+	ifeq ($(platform),ios-arm64)
+		COREFLAGS += -DHAVE_NEON -D__ARM_NEON__ -D__NEON_OPT -ftree-vectorize -funsafe-math-optimizations -fno-finite-math-only
+	else
+		COREFLAGS += -DHAVE_NEON -D__ARM_NEON__ -D__NEON_OPT -ftree-vectorize -mvectorize-with-neon-quad -ftree-vectorizer-verbose=2 -funsafe-math-optimizations -fno-finite-math-only
+	endif
 endif
 
 COREFLAGS += -D__LIBRETRO__ -DUSE_FILE32API -DM64P_PLUGIN_API -DM64P_CORE_PROTOTYPES -D_ENDUSER_RELEASE -DSINC_LOWER_QUALITY -DTXFILTER_LIB -D__VEC4_OPT -DMUPENPLUSAPI
@@ -381,7 +472,7 @@ ifeq ($(DEBUG), 1)
 else
    CPUOPTS += -DNDEBUG -fsigned-char -ffast-math -fno-strict-aliasing -fomit-frame-pointer -fvisibility=hidden
 ifneq ($(platform), libnx)
-   CPUOPTS := -O2 $(CPUOPTS)
+   CPUOPTS := -O3 $(CPUOPTS)
 endif
    CXXFLAGS += -fvisibility-inlines-hidden
 endif
@@ -389,6 +480,10 @@ endif
 # set C/C++ standard to use
 CFLAGS += -std=gnu11
 CXXFLAGS += -std=gnu++11
+
+ifeq ($(HAVE_LTCG),1)
+   CPUFLAGS += -flto
+endif
 
 ifeq ($(PIC), 1)
    fpic = -fPIC
@@ -404,7 +499,11 @@ ifeq (,$(findstring android,$(platform)))
    LDFLAGS    += -lpthread
 endif
 
-LDFLAGS    += $(fpic) -O2 -lz -lpng
+ifeq ($(platform),ios-arm64)
+	LDFLAGS    += $(fpic) -O3 -lz $(CPUOPTS) $(PLATCFLAGS) $(CPUFLAGS)
+else
+	LDFLAGS    += $(fpic) -O3 -lz -lpng $(CPUOPTS) $(PLATCFLAGS) $(CPUFLAGS)
+endif
 
 all: $(TARGET)
 $(TARGET): $(OBJECTS)

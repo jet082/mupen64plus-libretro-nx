@@ -1,4 +1,4 @@
-/* Copyright (C) 2010-2018 The RetroArch team
+/* Copyright (C) 2010-2019 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
  * The following license statement only applies to this libretro SDK code part (glsm).
@@ -27,8 +27,21 @@
 #include <glsm/glsm.h>
 #include <GLideN64_libretro.h>
 
+#if defined(HAVE_OPENGLES3)
+typedef double GLclampd;
+typedef double GLdouble;
+// These will get redefined by other GL headers.
+#undef GL_DRAW_FRAMEBUFFER_BINDING
+#undef GL_COPY_READ_BUFFER_BINDING
+#undef GL_COPY_WRITE_BUFFER_BINDING
+#define ptrdiff_t khronos_ssize_t
+#endif
+
+#include <OpenGLES/ES3/gl.h>
+#include <OpenGLES/ES3/glext.h>
+
 #ifdef HAVE_OPENGLES
-#include <EGL/egl.h>
+//#include <EGL/egl.h>
 typedef void (GL_APIENTRYP PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC) (GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void *indices, GLint basevertex);
 typedef void (GL_APIENTRYP PFNGLBUFFERSTORAGEEXTPROC) (GLenum target, GLsizeiptr size, const void *data, GLbitfield flags);
 typedef void (GL_APIENTRYP PFNGLMEMORYBARRIERPROC) (GLbitfield barriers);
@@ -1251,7 +1264,7 @@ void rglBindFragDataLocation(GLuint program, GLuint colorNumber,
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glBindFragDataLocation.\n");
 #endif
-#if !defined(HAVE_OPENGLES2)
+#if !defined(HAVE_OPENGLES2) && !defined(HAVE_OPENGLES3)
    glBindFragDataLocation(program, colorNumber, name);
 #endif
 }
@@ -1413,10 +1426,7 @@ void rglGetActiveUniformsiv( 	GLuint program,
  *
  * OpenGLES  : 3.0
  */
-void rglGetUniformIndices(GLuint program,
-  	GLsizei uniformCount,
-  	const GLchar **uniformNames,
-  	GLuint *uniformIndices)
+void rglGetUniformIndices(GLuint program, GLsizei uniformCount, const GLchar *const*uniformNames, GLuint *uniformIndices)
 {
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glGetUniformIndices.\n");
@@ -1633,8 +1643,7 @@ GLint rglGetAttribLocation(GLuint program, const GLchar *name)
  * Core in:
  * OpenGL    : 2.0
  */
-void rglShaderSource(GLuint shader, GLsizei count,
-      const GLchar **string, const GLint *length)
+void rglShaderSource(GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length)
 {
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glShaderSource.\n");
@@ -1862,7 +1871,7 @@ void rglVertexAttrib4f(GLuint name, GLfloat x, GLfloat y,
  * Core in:
  * OpenGL    : 2.0
  */
-void rglVertexAttrib4fv(GLuint name, GLfloat* v)
+void rglVertexAttrib4fv(GLuint name, const GLfloat* v)
 {
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glVertexAttrib4fv.\n");
@@ -2404,7 +2413,7 @@ void rglTexStorage2D(GLenum target, GLsizei levels, GLenum internalFormat,
  * OpenGL    : 3.2
  * OpenGLES  : 3.2
  */
-void rglDrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, GLvoid *indices, GLint basevertex)
+void rglDrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void *indices, GLint basevertex)
 {
 #ifdef HAVE_OPENGLES
    bindFBO(GL_FRAMEBUFFER);
@@ -2778,7 +2787,7 @@ void *rglFenceSync(GLenum condition, GLbitfield flags)
  * OpenGL    : 3.2
  * OpenGLES  : 3.0
  */
-void rglDeleteSync(void * sync)
+void rglDeleteSync(GLsync sync)
 {
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glDeleteSync.\n");
@@ -2907,7 +2916,7 @@ void rglFlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length
  * OpenGL    : 3.2
  * OpenGLES  : 3.0
  */
-GLenum rglClientWaitSync(void *sync, GLbitfield flags, uint64_t timeout)
+GLenum rglClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout)
 {
 #ifdef GLSM_DEBUG
    log_cb(RETRO_LOG_INFO, "glClientWaitSync.\n");
@@ -2982,7 +2991,7 @@ static void glsm_state_setup(void)
    GLint majorVersion = 0;
    GLint minorVersion = 0;
    bool copy_image_support_version = 0;
-#ifndef HAVE_OPENGLES2
+#ifndef HAVE_OPENGLES3
    glGetIntegerv(GL_MAJOR_VERSION, &majorVersion);
    glGetIntegerv(GL_MINOR_VERSION, &minorVersion);
 #endif
@@ -2995,14 +3004,14 @@ static void glsm_state_setup(void)
 #endif
    copy_image_support = isExtensionSupported("GL_ARB_copy_image") || isExtensionSupported("GL_EXT_copy_image") || copy_image_support_version;
 #ifdef HAVE_OPENGLES
-   m_glDrawRangeElementsBaseVertex = (PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC)eglGetProcAddress("glDrawRangeElementsBaseVertex");
+/*   m_glDrawRangeElementsBaseVertex = (PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC)eglGetProcAddress("glDrawRangeElementsBaseVertex");
    m_glBufferStorage = (PFNGLBUFFERSTORAGEEXTPROC)eglGetProcAddress("glBufferStorageEXT");
    m_glMemoryBarrier = (PFNGLMEMORYBARRIERPROC)eglGetProcAddress("glMemoryBarrier");
    m_glBindImageTexture = (PFNGLBINDIMAGETEXTUREPROC)eglGetProcAddress("glBindImageTexture");
    m_glTexStorage2DMultisample = (PFNGLTEXSTORAGE2DMULTISAMPLEPROC)eglGetProcAddress("glTexStorage2DMultisample");
    m_glCopyImageSubData = (PFNGLCOPYIMAGESUBDATAPROC)eglGetProcAddress("glCopyImageSubData");
    if (m_glCopyImageSubData == NULL)
-      m_glCopyImageSubData = (PFNGLCOPYIMAGESUBDATAPROC)eglGetProcAddress("glCopyImageSubDataEXT");
+      m_glCopyImageSubData = (PFNGLCOPYIMAGESUBDATAPROC)eglGetProcAddress("glCopyImageSubDataEXT");*/
 #endif
 
    unsigned i;
@@ -3299,13 +3308,17 @@ static bool glsm_state_ctx_init(glsm_ctx_params_t *params)
    hw_render.context_type       = RETRO_HW_CONTEXT_OPENGLES2;
 #endif
 #else
+#if defined(CORE) && !defined(HAVE_LIBNX)
+   hw_render.context_type       = RETRO_HW_CONTEXT_OPENGL_CORE;
+   hw_render.version_major      = 3;
+   hw_render.version_minor      = 3;
+#else
    hw_render.context_type       = RETRO_HW_CONTEXT_OPENGL;
-   if (params->context_type != RETRO_HW_CONTEXT_NONE)
-      hw_render.context_type    = params->context_type;
    if (params->major != 0)
       hw_render.version_major   = params->major;
    if (params->minor != 0)
       hw_render.version_minor   = params->minor;
+#endif // defined(CORE) && !defined(HAVE_LIBNX)
 #endif
 
    hw_render.context_reset      = params->context_reset;
@@ -3326,6 +3339,7 @@ GLuint glsm_get_current_framebuffer(void)
    return hw_render.get_current_framebuffer();
 }
 
+extern void initGLFunctions();
 bool glsm_ctl(enum glsm_state_ctl state, void *data)
 {
    switch (state)
@@ -3350,6 +3364,8 @@ bool glsm_ctl(enum glsm_state_ctl state, void *data)
          break;
       case GLSM_CTL_STATE_CONTEXT_RESET:
          rglgen_resolve_symbols(hw_render.get_proc_address);
+         //initGLFunctions();
+         
          if (window_first > 0) {
             resetting_context = 1;
             glsm_state_setup();
